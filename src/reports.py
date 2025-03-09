@@ -1,77 +1,81 @@
-import datetime
-import json
 import logging
-from typing import Any, Callable, Optional
+from datetime import datetime, timedelta
+from functools import wraps
+from typing import Optional
 
 import pandas as pd
 
-from src.decorators import decorator_spending_by_category
+from config import file_path
 
-logger = logging.getLogger("report.log")
-file_handler = logging.FileHandler("report.log", "w")
-file_formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
-logger.setLevel(logging.INFO)
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def log_spending_by_category(filename: Any) -> Callable:
-    """Логирует результат функции в указанный файл"""
+def log_report_to_file(filename):
+    """Декоратор для записи отчета в файл."""
 
-    def decorator(func: Callable) -> Callable:
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            result = func(*args, **kwargs).to_dict("records")
-            with open(filename, "w") as f:
-                json.dump(result, f, indent=4)
-            return result
+    def wrapper(func):
+        @wraps(func)
+        def inner(*args, **kwargs):
+            df = func(*args, **kwargs)
+            logger.info("Проверка: являются ли данные датафреймом")
+            if isinstance(df, pd.DataFrame):
+                logger.info("Запись отчёта в файл")
+                df.to_json(filename, orient="records", lines=True, force_ascii=False)
+            else:
+                logger.error("Данные не являются датафреймом. В файл записаны не будут")
+            return df
 
-        return wrapper
+        return inner
 
-    return decorator
+    return wrapper
 
 
-@decorator_spending_by_category
-def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None):
-    """Функция возвращающая траты за последние 3 месяца по заданной категории"""
-    logger.info("Начало работы")
-    list_by_category = []
-    final_list = []
+def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None) -> dict:
+    """Функция для вычисления трат по категории за последние три месяца."""
+
+    if "Категория" in transactions.columns:
+        category_data = transactions["Категория"]
+        print(category_data)
+    else:
+        print("Столбец 'Категория' не найден.")
+        return {}
 
     if date is None:
-        logger.info("Обработка условия на отсутствие")
-        date_start = datetime.datetime.now() - datetime.timedelta(days=90)
-        for i in transactions:
-            if i["Категория"] == category:
-                list_by_category.append(i)
-        for i in list_by_category:
-            if i["Дата платежа"] == "nan" or type(i["Дата платежа"]) is float:
-                continue
-            elif (
-                    date_start
-                    <= datetime.datetime.strptime(str(i["Дата платежа"]), "%d.%m.%Y")
-                    <= date_start + datetime.timedelta(days=90)
-            ):
-                final_list.append(i["Сумма платежа"])
-        return final_list
+        date = datetime.now()
     else:
-        logger.info("Обработка условия на создание")
-        day, month, year = date.split(".")
-        date_obj = datetime.datetime(int(year), int(month), int(day))
-        date_start = date_obj - datetime.timedelta(days=90)
+        date = datetime.strptime(date, "%Y-%m-%d")
 
-        for i in transactions:
-            if i["Категория"] == category:
-                list_by_category.append(i)
+    # Получение даты три месяца назад
+    three_months_ago = date - timedelta(days=90)
 
-        for i in list_by_category:
-            if i["Дата платежа"] == "nan" or type(i["Дата платежа"]) is float:
-                continue
-            else:
-                day_, month_, year_ = i["Дата платежа"].split(".")
-                date_obj_ = datetime.datetime(int(year), int(month), int(day))
-                if date_start <= date_obj_ <= date_start + datetime.timedelta(days=90):
-                    final_list.append(i["Сумма платежа"])
-        logger.info("Завершение работы функции")
-        data_json = json.dumps(final_list, indent=4, ensure_ascii=False, )
+    # Фильтрация DataFrame по категории и дате
+    filtered_expenses = transactions[
+        (transactions["Категория"] == category)
+        & (transactions["Дата операции"] >= three_months_ago)
+        & (transactions["Дата операции"] <= date)
+    ]
 
-        return data_json
+    # Проверка на наличие отфильтрованных расходов
+    if filtered_expenses.empty:
+        logger.warning(f"Нет расходов для категории '{category}' за указанный период.")
+        return {
+            "category": category,
+            "total_expenses": 0,
+            "date_from": three_months_ago.strftime("%Y-%m-%d"),
+            "date_to": date.strftime("%Y-%m-%d"),
+        }
+
+    # Подсчет общих трат
+    total_expenses = filtered_expenses["Сумма операции"].sum()
+
+    report = {
+        "category": category,
+        "total_expenses": total_expenses,
+        "date_from": three_months_ago.strftime("%Y-%m-%d"),
+        "date_to": date.strftime("%Y-%m-%d"),
+    }
+
+    logger.info(f"Отчет создан для категории '{category}': {report}")
+    return report

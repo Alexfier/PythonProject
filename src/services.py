@@ -1,38 +1,46 @@
+
 import json
 import logging
+from collections import defaultdict
+from datetime import datetime
+from functools import reduce
 
-from src.decorators import decorator_search
-
-logger = logging.getLogger("services.log")
-file_handler = logging.FileHandler("services.log", "w")
-file_formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-@decorator_search
-def simple_search(my_list: list, string_search: str):
-    """Функция поиска по переданной строке"""
-    result = []
-    logger.info("Начало работы функции (simple_search)")
-    for i in my_list:
-        if string_search == '':
-            return result
-        elif (
-                i["Описание"] == "nan"
-                or type(i["Описание"]) is float
-                or i["Категория"] == "nan"
-                or type(i["Категория"]) is float
-        ):
-            continue
-        elif string_search in i["Описание"] or string_search in i["Категория"]:
-            result.append(i)
+def get_beneficial_cashback_categories(data, year, month):
+    """
+    Функция «Выгодные категории повышенного кешбэка»
 
-    logger.info("Конец работы функции (simple_search)")
-    data_json = json.dumps(result,
-                           indent=4,
-                           ensure_ascii=False,
-                           )
+    :param data: Список транзакций
+    :param year: Год для анализа
+    :param month: Месяц для анализа
+    :return: JSON строка с анализом кэшбэка по категориям
+    """
 
-    return data_json
+    logger.info("Начинается анализ категорий кешбэка за %d-%02d", year, month)
+
+    # Функция для фильтрации транзакций по году и месяцу
+    is_in_month = (
+        lambda x: datetime.strptime(x["date"], "%Y-%m-%d").year == year
+        and datetime.strptime(x["date"], "%Y-%m-%d").month == month
+    )
+
+    filtered_transactions = list(filter(is_in_month, data))
+    logger.info("Отфильтрованные транзакции: %s", filtered_transactions)
+
+    # Функция для аккумулирования сумм по категориям
+    def accumulate(acc, transaction):
+        category = transaction["category"]
+        amount = abs(transaction["amount"])
+        acc[category] += amount
+        return acc
+
+    category_cashback = reduce(accumulate, filtered_transactions, defaultdict(int))
+
+    # Формируем кэшбэк (1% от суммы) и превращаем его в обычный словарь
+    cashbacks = {category: round(amount * 0.01) for category, amount in category_cashback.items()}
+
+    logger.info("Сумма cashback: %s", cashbacks)
+
+    return json.dumps(cashbacks, ensure_ascii=False, indent=4)
