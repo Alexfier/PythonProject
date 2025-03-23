@@ -1,134 +1,120 @@
-import datetime
-import json
 import logging
-import os
-import urllib.request
+from datetime import datetime, timedelta
 
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
-API_KEY_CUR = os.getenv("API_KEY_CUR")
-
-SP_500_API_KEY = os.getenv("SP_500_API_KEY")
-
-logger = logging.getLogger("utils.log")
-file_handler = logging.FileHandler("utils.log", "w")
-file_formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
-logger.setLevel(logging.INFO)
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
-def read_excel(path_file: str) -> list[dict]:
-    """Функция читает .xlsx файл и возвращает список словарей"""
-    df = pd.read_excel(path_file)
-    result = df.apply(
-        lambda row: {
-            "Дата платежа": row["Дата платежа"],
-            "Статус": row["Статус"],
-            "Сумма платежа": row["Сумма платежа"],
-            "Валюта платежа": row["Валюта платежа"],
-            "Категория": row["Категория"],
-            "Описание": row["Описание"],
-            "Номер карты": row["Номер карты"],
-        },
-        axis=1,
-    ).tolist()
-    return result
+def get_data_range(date_str, data_range):
+    # Преобразуйте входную строку на случай, если время отсутствует
+    if len(date_str) == 10:  # формат 'DD.MM.YYYY'
+        date_str += " 00:00:00"
+        logging.debug(f"Преобразована строка даты: {date_str}")
 
+    # Теперь можно безопасно разбирать строку
+    parsed_date = datetime.strptime(date_str, "%d.%m.%Y %H:%M:%S")
+    logging.debug(f"Разобранная дата: {parsed_date}")
 
-def greetings():
-    """Функция приветствия"""
+    if data_range == "M":
+        start_date = parsed_date.replace(hour=0, minute=0, second=0)
+        end_date = (start_date + timedelta(days=31)).replace(day=1) - timedelta(seconds=1)
+        end_date = end_date.replace(hour=23, minute=59, second=59)
+        logging.debug(f"Месячный период: {start_date} - {end_date}")
 
-    time_obj = datetime.datetime.now()
-    if 6 <= time_obj.hour <= 12:
-        return "Доброе утро"
-    elif 13 <= time_obj.hour <= 18:
-        return "Добрый день"
-    elif 19 <= time_obj.hour <= 23:
-        return "Добрый вечер"
+    elif data_range == "W":
+        start_date = parsed_date - timedelta(days=parsed_date.weekday())  # Понедельник
+        end_date = start_date + timedelta(days=6)  # Воскресенье
+        end_date = end_date.replace(hour=23, minute=59, second=59)
+        logging.debug(f"Недельный период: {start_date} - {end_date}")
+
+    elif data_range == "Y":
+        start_date = parsed_date.replace(month=1, day=1, hour=0, minute=0, second=0)
+        end_date = parsed_date.replace(month=12, day=31, hour=23, minute=59, second=59)
+        logging.debug(f"Годовой диапазон: {start_date} - {end_date}")
+
+    elif data_range == "ALL":
+        # Логика для ALL
+        start_date = datetime(2021, 1, 1, 16, 44, 0)
+        end_date = parsed_date
+        logging.debug(f"Период даты и времени: {start_date} - {end_date}")
+
     else:
-        return "Доброй ночи"
+        logging.error("Недопустимый период")
+        raise ValueError("Invalid period")
+
+    return start_date, end_date
 
 
-def for_each_card(my_list: list) -> list:
-    """Функция создания информации по каждой карте"""
-    logger.info("Начало работы функции (for_each_card)")
-    cards = {}
-    result = []
-    logger.info("Перебор транзакций")
-    for i in my_list:
-        if i["Номер карты"] == "nan" or type(i["Номер карты"]) is float:
-            continue
-        elif i["Сумма платежа"] == "nan":
-            continue
-        else:
-            if i["Номер карты"][1:] in cards:
-                cards[i["Номер карты"][1:]] += float(str(i["Сумма платежа"])[1:])
-            else:
-                cards[i["Номер карты"][1:]] = float(str(i["Сумма платежа"])[1:])
-    for k, v in cards.items():
-        result.append({"last_digits": k, "total_spent": round(v, 2), "cashback": round(v / 100, 2)})
-    logger.info("Завершение работы функции (for_each_card)")
-    return result
+def get_currency_rates(currencies):
+    rates = {}
+    for currency in currencies:
+        logging.debug(f"Запрос курсов для валюты: {currency}")
+        try:
+            response = requests.get(
+                f"https://v6.exchangerate-api.com/v6/ed5608baba940bd1aa75173b/latest/USD {currency}"
+            )
+            response.raise_for_status()
+            rates[currency] = response.json().get("rates", {})
+            logging.info(f"Успешно получены курсы для {currency}: {rates[currency]}")
+        except requests.RequestException as e:
+            logging.error(f"Ошибка при получении курса для {currency}: {e}")
+            rates[currency] = {}
+    return rates
 
 
-def currency_rates(currency: list) -> list[dict]:
-    """Функция запроса курса валют"""
-    logger.info("Начало работы функции (currency_rates)")
-    api_key = API_KEY_CUR
-    result = []
-    for i in currency:
-        url = f"https://v6.exchangerate-api.com/v6/{api_key}/latest/{i}"
-        with urllib.request.urlopen(url) as response:
-            body_json = response.read()
-        body_dict = json.loads(body_json)
-        result.append({"currency": i, "rate": round(body_dict["conversion_rates"]["RUB"], 2)})
-
-    logger.info("Создание списка словарей для функции - currency_rates")
-
-    logger.info("Окончание работы функции - currency_rates")
-    return result
-
-
-def top_five_transaction(my_list: list) -> list:
-    """Функция для получения топ-5 транзакций по сумме платежа"""
-    logger.info("Начало работы функции (top_five_transaction)")
-    all_transactions = {}
-    result = []
-    logger.info("Перебор транзакций в функции (top_five_transaction)")
-    for i in my_list:
-        if i["Категория"] not in all_transactions and str(i["Сумма платежа"])[0:1] != "-":
-            if i["Категория"] != "Пополнения":
-                all_transactions[i["Категория"]] = float(str(i["Сумма платежа"])[1:])
-        elif (
-                i["Категория"] in all_transactions
-                and float(str(i["Сумма платежа"])[1:]) > all_transactions[i["Категория"]]
-        ):
-            all_transactions[i["Категория"]] = float(str(i["Сумма платежа"])[1:])
-    for i in my_list:
-        for k, v in all_transactions.items():
-            if k == i["Категория"] and v == float(str(i["Сумма платежа"])[1:]):
-                result.append({"date": i["Дата платежа"], "amount": v, "category": k, "description": i["Описание"]})
-    logger.info("Окончание работы функции (top_five_transaction)")
-
-    return result
-
-
-def get_price_stock(stocks: list) -> list:
-    """Функция для получения данных об акциях из списка S&P500"""
-    logger.info("Начало работы функции (get_price_stock)")
-    api_key = SP_500_API_KEY
-    stock_prices = []
-    logger.info("Функция обрабатывает данные транзакций.")
+def get_stock_prices(stocks):
+    """Получает цены акций."""
+    prices = {}
     for stock in stocks:
-        logger.info("Перебор акций в списке 'stocks' в функции (get_price_stock)")
-        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={stock}&apikey={api_key}"
-        response = requests.get(url, timeout=5, allow_redirects=False)
-        result = response.json()
+        logging.debug(f"Запрос цены для акции: {stock}")
+        try:
+            response = requests.get(
+                f"https://api.marketstack.com/v1/eod?access_key=df3caee3a4eb8c55e2af01775ca399c8&symbols=AAPL {stock}"
+            )
+            response.raise_for_status()  # Проверка на ошибки HTTP
+            prices[stock] = response.json().get("price", None)
+            logging.info(f"Успешно получена цена для {stock}: {prices[stock]}")
+        except requests.RequestException as e:
+            logging.error(f"Ошибка при получении цены для {stock}: {e}")
+            prices[stock] = None
+    return prices
 
-        stock_prices.append({"stock": stock, "price": round(float(result["Global Quote"]["05. price"]), 2)})
-    logger.info("Функция get_price_stock успешно завершила свою работу")
-    return stock_prices
+
+def group_expenses(filtered_data):
+    """Группирует расходы по категориям и возвращает основные категории."""
+    logging.debug("Начало группировки расходов")
+    expenses_by_category = (
+        filtered_data[filtered_data["Сумма операции"] < 0].groupby("Категория")["Сумма операции"].sum().reset_index()
+    )
+    expenses_by_category["Сумма операции"] = expenses_by_category["Сумма операции"].round(0)
+    top_expenses = expenses_by_category.nlargest(7, "Сумма операции")
+    other_expenses_sum = expenses_by_category.loc[
+        ~expenses_by_category["Категория"].isin(top_expenses["Категория"]), "Сумма операции"
+    ].sum()
+
+    other_expenses = pd.DataFrame({"Категория": ["Остальное"], "Сумма операции": [other_expenses_sum]})
+    combined_expenses = pd.concat([top_expenses, other_expenses], ignore_index=True)
+
+    logging.info("Группировка расходов завершена")
+    return combined_expenses
+
+
+def group_income(filtered_data):
+    """Группирует поступления по категориям и возвращает основные категории."""
+    logging.debug("Начало группировки поступлений")
+    income_by_category = (
+        filtered_data[filtered_data["Сумма операции"] > 0].groupby("Категория")["Сумма операции"].sum().reset_index()
+    )
+    income_by_category["Сумма операции"] = income_by_category["Сумма операции"].round(0)
+    top_income = income_by_category.nlargest(7, "Сумма операции")
+    other_income_sum = income_by_category.loc[
+        ~income_by_category["Категория"].isin(top_income["Категория"]), "Сумма операции"
+    ].sum()
+    other_income = pd.DataFrame({"Категория": ["Остальное"], "Сумма операции": [other_income_sum]})
+    combined_income = pd.concat([top_income, other_income], ignore_index=True)
+
+    logging.info("Группировка поступлений завершена")
+    return combined_income
