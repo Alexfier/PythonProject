@@ -1,28 +1,38 @@
-import datetime
+import datetime as dt
+import functools
 import json
-import logging
 from typing import Any, Callable, Optional
 
 import pandas as pd
 
-from src.decorators import decorator_spending_by_category
+from config import DATA_DIR
+from logger import get_logger_for_reports
 
-logger = logging.getLogger("report.log")
-file_handler = logging.FileHandler("report.log", "w")
-file_formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
-logger.setLevel(logging.INFO)
+# Инициализирую логгер для reports
+logger = get_logger_for_reports(__name__)
 
 
-def log_spending_by_category(filename: Any) -> Callable:
-    """Логирует результат функции в указанный файл"""
+def save_report(file_name: Optional[str] = None) -> Callable:
+    """Декоратор для функций-отчетов, который записывает в файл результаты полученные в функциях-отчеты."""
 
     def decorator(func: Callable) -> Callable:
+        # С помощью библиотеки functools охраняю метаданные оборачиваемой функции, чтоб потом в логгах,
+        # при использовании, например {spending_by_category.__name__} записывалось spending_by_category, а не wrapper
+        @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            result = func(*args, **kwargs).to_dict("records")
-            with open(filename, "w") as f:
-                json.dump(result, f, indent=4)
+            # Выполнение функции-отчета
+            result = func(*args, **kwargs)
+            # Определение имени отчета по умолчанию, если оно не задано в параметре декоратора при его использовании
+            default_file = f"report_{dt.datetime.now().strftime("%Y.%m.%d_%H:%M:%S")}.json"
+            target_file = file_name if file_name else default_file
+            # Преобразование данных для сериализации.
+            # Нужно во входящем DataFrame изменить формат "Дата платежа" из формата pandas в строку заданного формата.
+            result_dict = result.copy()
+            if "Дата платежа" in result_dict.columns:
+                result_dict["Дата платежа"] = result_dict["Дата платежа"].dt.strftime("%d.%m.%Y")
+            # Сохранение результатов отчета в заданный файл
+            with open(f"{DATA_DIR}/{target_file}", "w", encoding="utf-8") as file:
+                json.dump(result_dict.to_dict(orient="records"), file, ensure_ascii=False, indent=4)
             return result
 
         return wrapper
@@ -30,48 +40,40 @@ def log_spending_by_category(filename: Any) -> Callable:
     return decorator
 
 
-@decorator_spending_by_category
-def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None):
-    """Функция возвращающая траты за последние 3 месяца по заданной категории"""
-    logger.info("Начало работы")
-    list_by_category = []
-    final_list = []
+@save_report("report_spending_by_category.json")
+def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None) -> pd.DataFrame:
+    """Функция для отчета "Траты по категории" для анализа трат пользователя.
+    :param transactions: DataFrame с банковскими транзакциями.
+    :param category: Название категории для фильтрации банковских транзакций.
+    :param date: Опциональная дата, которая определяет диапазон фильтрации.
+    :return: DataFrame с тратами по заданной категории за последние три месяца (от переданной даты)."""
 
-    if date is None:
-        logger.info("Обработка условия на отсутствие")
-        date_start = datetime.datetime.now() - datetime.timedelta(days=90)
-        for i in transactions:
-            if i["Категория"] == category:
-                list_by_category.append(i)
-        for i in list_by_category:
-            if i["Дата платежа"] == "nan" or type(i["Дата платежа"]) is float:
-                continue
-            elif (
-                    date_start
-                    <= datetime.datetime.strptime(str(i["Дата платежа"]), "%d.%m.%Y")
-                    <= date_start + datetime.timedelta(days=90)
-            ):
-                final_list.append(i["Сумма платежа"])
-        return final_list
+    # Преобразую столбец "Дата платежа" в datetime
+    logger.debug("Преобразование столбца 'Дата платежа' в datetime для последующих операций фильтрации")
+    transactions["Дата платежа"] = pd.to_datetime(transactions["Дата платежа"], format="%d.%m.%Y", errors="coerce")
+
+    # Преобразую входящую дату от пользователя в формат pandas.Timestamp для последующей фильтрации.
+    # Создал дату начала и окончания выполняя условие БТ - "Если дата не передана, то берется текущая дата."
+    logger.debug("Установка даты начала и даты окончания для диапазона фильтрации")
+    if date:
+        end_date = pd.Timestamp(date)
     else:
-        logger.info("Обработка условия на создание")
-        day, month, year = date.split(".")
-        date_obj = datetime.datetime(int(year), int(month), int(day))
-        date_start = date_obj - datetime.timedelta(days=90)
+        end_date = pd.Timestamp(dt.datetime.now())
+    start_date = end_date - pd.DateOffset(months=3)
 
-        for i in transactions:
-            if i["Категория"] == category:
-                list_by_category.append(i)
+    # Фильтрация полученного DataFrame по переданной дате (3 мес от этой даты)
+    logger.debug("Фильтрация полученного DataFrame по определенному диапазону")
+    df_filtered_transactions = transactions.loc[
+        (transactions["Дата платежа"] >= start_date) & (transactions["Дата платежа"] <= end_date)
+    ]
 
-        for i in list_by_category:
-            if i["Дата платежа"] == "nan" or type(i["Дата платежа"]) is float:
-                continue
-            else:
-                day_, month_, year_ = i["Дата платежа"].split(".")
-                date_obj_ = datetime.datetime(int(year), int(month), int(day))
-                if date_start <= date_obj_ <= date_start + datetime.timedelta(days=90):
-                    final_list.append(i["Сумма платежа"])
-        logger.info("Завершение работы функции")
-        data_json = json.dumps(final_list, indent=4, ensure_ascii=False, )
+    # Сортировка успешных расходных операций по заданной категории
+    logger.debug("Сортировка успешных расходных операций пользователя по заданной категории")
+    df_sorted_transactions = df_filtered_transactions.loc[
+        (df_filtered_transactions["Статус"] == "OK")
+        & (df_filtered_transactions["Сумма платежа"] < 0)
+        & (df_filtered_transactions["Категория"].str.lower() == category)
+    ]
 
-        return data_json
+    logger.debug(f"Возврат результата отчета {spending_by_category.__name__}")
+    return df_sorted_transactions

@@ -1,90 +1,226 @@
+from datetime import datetime
+from unittest.mock import MagicMock, mock_open, patch
 
-import os
-from pathlib import Path
-from unittest.mock import Mock, patch
+import pandas as pd
+import pandas.testing as pdt  # Импортирую функцию pd.testing для сравнения 2-х DataFrame (будет вместо assert)
+import pytest
 
-from dotenv import load_dotenv
-
-from src.utils import currency_rates, for_each_card, get_price_stock, greetings, read_excel, top_five_transaction
-
-file_path = str(Path(__file__).resolve().parent.parent) + "\\data\\operations.xlsx"
-load_dotenv()
-API_KEY_CUR = os.getenv("API_KEY_CUR")
-my_list = read_excel(file_path)
-empty_list = []
-
-
-def test_greetings():
-    """Тестирование функции приветствия"""
-    assert greetings() == "Добрый день"
+from src.utils import (
+    filter_exchange_rates_from_user_settings,
+    filter_stock_from_user_settings,
+    filter_top_transactions,
+    get_card_cashback,
+    get_cards_info,
+    greeting,
+    read_data_with_user_operations,
+    read_user_settings_for_exchange_rates_and_stock,
+)
 
 
-def test_for_each_card():
-    """Тестирование функции создающей информацию по каждой карте, в обычном режиме"""
-    assert for_each_card(my_list) == [{'last_digits': '7197', 'total_spent': 2504514.54, 'cashback': 25045.15},
-                                      {'last_digits': '5091', 'total_spent': 18216.84, 'cashback': 182.17},
-                                      {'last_digits': '4556', 'total_spent': 2103029.17, 'cashback': 21030.29},
-                                      {'last_digits': '1112', 'total_spent': 46207.08, 'cashback': 462.07},
-                                      {'last_digits': '5507', 'total_spent': 84000.0, 'cashback': 840.0},
-                                      {'last_digits': '6002', 'total_spent': 69200.0, 'cashback': 692.0},
-                                      {'last_digits': '5441', 'total_spent': 470854.8, 'cashback': 4708.55}]
+@patch("pandas.read_excel")
+def test_read_data_with_user_operations_successful(
+    mock_read_excel: MagicMock, fixture_dataframe_with_one_operation: pd.DataFrame
+) -> None:
+    """Тест на успешное чтение EXCEL-файла."""
+
+    # Подготавливаю данные
+    mock_test_data = fixture_dataframe_with_one_operation
+    # Мокаю возврат mock_read_excel
+    mock_read_excel.return_value = mock_test_data
+    # Вызываю функцию, которую тестирую
+    result = read_data_with_user_operations("some_path_to/operations.xlsx")
+    # Проверяю полученный результат эквивалентность с ожидаемым результатом
+    expected_result = mock_test_data
+    pdt.assert_frame_equal(result, expected_result)  # использую спец.функц. для сравнения 2-х DataFrame вместо assert
 
 
-def test_for_each_card_emp_att():
-    """Тестирование функции создающей информацию по каждой карте, с пустым списком"""
-    assert for_each_card(empty_list) == []
+@patch("pandas.read_excel")
+def test_read_data_with_user_operations_file_not_found(mock_read_excel: MagicMock) -> None:
+    """Тест для обработки ошибки при отсутствии файла - FileNotFoundError."""
+
+    # Мокаю возврат ошибки FileNotFoundError
+    mock_read_excel.side_effect = FileNotFoundError
+    # Вызываю функцию, которую тестирую с несуществующим файлом
+    result = read_data_with_user_operations("not_existent_file.xlsx")
+    # Проверка, что возвращается пустой DataFrame, как реализовано в функции.
+    # Для проверки можно использовать либо pd.testing.assert_frame_equal, либо проверку.empty,
+    # если нас интересует только пустота DataFrame
+    pdt.assert_frame_equal(result, pd.DataFrame())  # использую спец.функц. для сравнения 2-х DataFrame вместо assert
 
 
-def test_top_five_transaction():
-    """Тестирование функции для получения топ-5 транзакций по сумме платежа, в обычном режиме"""
-    assert top_five_transaction(my_list) == [
-        {'date': '01.09.2021', 'amount': 5990.0, 'category': 'Каршеринг', 'description': 'Ситидрайв'},
-        {'date': '20.05.2021', 'amount': 8626.0, 'category': 'Бонусы', 'description': 'Компенсация покупки'},
-        {'date': '14.05.2019', 'amount': 42965.94, 'category': 'Другое', 'description': 'ГУП ВЦКП ЖХ'},
-        {'date': '30.04.2019', 'amount': 6100.0, 'category': 'Зарплата',
-         'description': 'Пополнение. ООО "ФОРТУНА". Зарплата'},
-        {'date': '23.04.2019', 'amount': 4518.0, 'category': 'Сервис', 'description': 'Kopirovalniy Centr'},
-        {'date': '15.04.2019', 'amount': 6100.0, 'category': 'Зарплата',
-         'description': 'Пополнение. ООО "ФОРТУНА". Аванс'},
-        {'date': '21.03.2019', 'amount': 190044.51, 'category': 'Переводы',
-         'description': 'Перевод Кредитная карта. ТП 10.2 RUR'},
-        {'date': '28.08.2018', 'amount': 32999.0, 'category': 'Различные товары', 'description': 'SPb Trk Atmosfera'},
-        {'date': '16.08.2018', 'amount': 3100.0, 'category': 'Транспорт', 'description': 'RigasStarptautiska autoos'},
-        {'date': '19.04.2018', 'amount': 4292.8, 'category': 'Ж/д билеты', 'description': 'РЖД'},
-        {'date': '10.03.2018', 'amount': 900.0, 'category': 'Кино', 'description': 'Каро Фильм'},
-        {'date': '06.03.2018', 'amount': 10420.07, 'category': 'Частные услуги', 'description': 'YM*Login.Skolkovo'},
-        {'date': '30.01.2018', 'amount': 2789.68, 'category': 'Супермаркеты', 'description': 'Перекрёсток'}]
+@patch("pandas.read_excel")
+def test_read_data_with_user_operations_empty_file(mock_read_excel: MagicMock) -> None:
+    """Тест для обработки ошибки при пустом файле - pd.errors.EmptyDataError."""
+
+    # Мокаю возврат ошибки pd.errors.EmptyDataError
+    mock_read_excel.side_effect = pd.errors.EmptyDataError
+    # Вызываю функцию, которую тестирую с пустым excel-файлом
+    result = read_data_with_user_operations("some_path_to/empty_file.xlsx")
+    # Проверка, что возвращается пустой DataFrame, как реализовано в функции.
+    # Для проверки можно использовать либо pd.testing.assert_frame_equal, либо проверку.empty,
+    # если нас интересует только пустота DataFrame
+    pdt.assert_frame_equal(result, pd.DataFrame())  # использую спец.функц. для сравнения 2-х DataFrame вместо assert
 
 
-def test_top_five_transaction_emp_att():
-    """Тестирование функции для получения топ-5 транзакций по сумме платежа, с пустым списком"""
-    assert top_five_transaction(empty_list) == []
+@pytest.mark.parametrize(
+    "mocked_time, expected_greeting",
+    [
+        (datetime(2024, 11, 1, 6), "Доброе утро"),
+        (datetime(2024, 11, 1, 11), "Добрый день"),
+        (datetime(2024, 11, 1, 18), "Добрый вечер"),
+        (datetime(2024, 11, 1, 1), "Доброй ночи"),
+    ],
+)
+def test_greeting(mocked_time: MagicMock, expected_greeting: str) -> None:
+    """Тест проверки варианта приветствия в зависимости от времени суток."""
+    with patch("datetime.datetime") as mock_datetime_datetime:
+        mock_datetime_datetime.now.return_value = mocked_time
+        assert greeting() == expected_greeting
 
 
-@patch('requests.get')
-def test_currency_rates(mock_get):
-    """Тестирование функции вывода курса валют"""
-    mock_response_usd = Mock()
-    mock_response_usd.json.return_value = {"conversion_rates": {"RUB": 88.34}}
-    mock_response_eur = Mock()
-    mock_response_eur.json.return_value = {"conversion_rates": {"RUB": 97.8}}
-    mock_get.side_effect = [mock_response_usd, mock_response_eur]
+@pytest.mark.parametrize(
+    "expected_data",
+    (
+        {
+            "Номер карты": ["*1234", "*5678"],
+            "Сумма расходов": [-1500.0, -200.0],
+        },
+    ),
+)
+def test_get_cards_info_successful(fixture_operations_data: pd.DataFrame, expected_data: pd.DataFrame) -> None:
+    """Тест для get_cards_info() проверяющий суммирование расходов и группировку по каждой карте."""
 
-    result = currency_rates(['USD', 'EUR'])
-    expected = [{"currency": "USD", "rate": 88.34}, {"currency": "EUR", "rate": 97.8}]
-    assert result == expected
+    expected_df = pd.DataFrame(expected_data)  # Нельзя в parametrize сразу передать DataFrame (делаю преобразование)
+    result = get_cards_info(fixture_operations_data)
+    pdt.assert_frame_equal(result, expected_df)
 
 
-@patch("requests.get")
-def test_fetch_stock_prices(mock_get):
-    """Тестирование функции получения данных об акциях из списка S&P500"""
+@pytest.mark.parametrize(
+    "expected_data",
+    (
+        {
+            "Номер карты": ["*1234", "*5678"],
+            "Рассчитанный кэшбэк": [60.0, 2.0],
+        },
+    ),
+)
+def test_get_card_cashback_successful(fixture_operations_data: pd.DataFrame, expected_data: pd.DataFrame) -> None:
+    """Тест для get_card_cashback() проверяющий расчет кэшбэка по каждой карте."""
 
-    mock_get.return_value.json.return_value = {"Global Quote": {"05. price": 210.00}}
+    expected_df = pd.DataFrame(expected_data)
+    result = get_card_cashback(fixture_operations_data)
+    pdt.assert_frame_equal(result, expected_df)
 
-    list_stocks = ["AAPL"]
 
-    result = get_price_stock(list_stocks)
-    expected = [
-        {"stock": "AAPL", "price": 210.00},
+def test_filter_top_transactions_successful(fixture_operations_data: pd.DataFrame) -> None:
+    """Тест для filter_top_transactions() с проверкой корректного выбора топ-5 транзакций."""
+
+    expected_data = pd.DataFrame(
+        {
+            "Дата платежа": pd.to_datetime(["2023-01-01", "2023-01-01", "2023-01-01"]),
+            "Сумма платежа": [-1000.0, -500.0, -200.0],
+            "Категория": ["Транспорт", "Рестораны", "Супермаркеты"],
+            "Описание": ["Поездка", "Ресторан", "Магазин"],
+        }
+    )
+
+    result = filter_top_transactions(fixture_operations_data)
+    pdt.assert_frame_equal(result, expected_data)
+
+
+@pytest.mark.parametrize(
+    "mock_data, expected_settings",
+    [
+        (
+            # Первый параметр (mock_data) — это строка, как бы представляющая на вход содержимое JSON-файла.
+            '{"user_currencies": ["USD", "EUR"], "user_stocks": ["AAPL", "AMZN", "GOOGL"]}',
+            # Второй параметр (expected_settings) — это ожидаемый результат функции.
+            {"user_currencies": ["USD", "EUR"], "user_stocks": ["AAPL", "AMZN", "GOOGL"]},
+        ),
+        (
+            '{"user_currencies": ["GBP"], "user_stocks": ["TSLA", "MSFT"]}',
+            {"user_currencies": ["GBP"], "user_stocks": ["TSLA", "MSFT"]},
+        ),
+    ],
+)
+def test_read_user_settings_successful(mock_data: MagicMock, expected_settings: dict) -> None:
+    """Тест успешного чтения пользовательских настроек из JSON."""
+
+    with patch("builtins.open", mock_open(read_data=mock_data)):
+        result = read_user_settings_for_exchange_rates_and_stock("some_path_to/operations.xlsx")
+        assert result == expected_settings
+
+
+def test_read_user_settings_file_not_found() -> None:
+    """Тест обработки ситуации, когда JSON-файл не найден и возвращаю данные установленные по умолчанию."""
+
+    with patch("builtins.open", side_effect=FileNotFoundError):
+        result = read_user_settings_for_exchange_rates_and_stock("fake_path/user_settings.json")
+        expected_settings = {"user_currencies": ["USD"], "user_stocks": ["AAPL", "GOOGL"]}
+        assert result == expected_settings
+
+
+def test_filter_exchange_rates_successful(fixture_user_settings: dict) -> None:
+    """Тест успешного получения курсов валют из API."""
+
+    # Определяю результаты для каждой валюты
+    mock_responses = [
+        {"result": 99.872647},  # Ответ для USD
+        {"result": 105.311966},  # Ответ для EUR
     ]
-    assert result == expected
+    # Замокать requests.request, чтобы он возвращал заранее определённый результат
+    with patch("requests.request") as mock_request:
+        # Настраиваю side_effect, чтобы каждый вызов возвращал объект с json()
+        mock_request.side_effect = [
+            MagicMock(status_code=200, json=MagicMock(return_value=response)) for response in mock_responses
+        ]
+
+        result = filter_exchange_rates_from_user_settings(fixture_user_settings)
+        expected_result = [
+            {"currency": "USD", "rate": 99.872647},
+            {"currency": "EUR", "rate": 105.311966},
+        ]
+        assert result == expected_result
+
+
+def test_filter_exchange_rates_api_key_not_found(fixture_user_settings: dict) -> None:
+    """Тест, проверяющий поведение при отсутствии API ключа."""
+
+    # Патчу os.getenv указывая как бы что он возвращает отсутствие ключа
+    with patch("src.utils.os.getenv", return_value=None):
+        with pytest.raises(ValueError, match="API_KEY_EXCHANGE_RATES не найден в переменных окружения.env"):
+            filter_exchange_rates_from_user_settings(fixture_user_settings)
+
+
+def test_filter_stock_prices_successful(fixture_user_settings: dict) -> None:
+    """Тест успешного получения цены акций по API."""
+
+    # Определяю результаты для каждой акции
+    mock_responses = [
+        {"data": [{"last": 228.31}]},  # Ответ для AAPL
+        {"data": [{"last": 1055.50}]},  # Ответ для AMZN
+        {"data": [{"last": 2050}]},  # Ответ для GOOGL
+    ]
+    # Замокать requests.request, чтобы он возвращал заранее определённый результат
+    with patch("requests.get") as mock_get:
+        # Настраиваю side_effect, чтобы каждый вызов возвращал объект с json()
+        mock_get.side_effect = [
+            MagicMock(status_code=200, json=MagicMock(return_value=response)) for response in mock_responses
+        ]
+
+        result = filter_stock_from_user_settings(fixture_user_settings)
+        expected_result = [
+            {"stock": "AAPL", "price": 228.31},
+            {"stock": "AMZN", "price": 1055.50},
+            {"stock": "GOOGL", "price": 2050},
+        ]
+        assert result == expected_result
+
+
+def test_filter_stock_prices_api_key_not_found(fixture_user_settings: dict) -> None:
+    """Тест, проверяющий поведение при отсутствии API ключа."""
+
+    # Патчу os.getenv указывая как бы что он возвращает отсутствие ключа
+    with patch("src.utils.os.getenv", return_value=None):
+        with pytest.raises(ValueError, match="API_KEY_STOCK_PRICES не найден в переменных окружения.env"):
+            filter_stock_from_user_settings(fixture_user_settings)

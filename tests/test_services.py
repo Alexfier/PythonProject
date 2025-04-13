@@ -1,68 +1,25 @@
 import json
-from pathlib import Path
+from unittest.mock import patch, MagicMock
 
-from src.services import simple_search
-from src.utils import read_excel
-
-file_path = str(Path(__file__).resolve().parent.parent) + "\\data\\operations.xlsx"
-my_list = read_excel(file_path)
-empty_list = []
+from src.services import get_cashback_analysis_by_category
 
 
-def test_services_works():
-    """Тестирование функции простой поиск в обычных условиях"""
-    assert simple_search(my_list, "Ozon.ru") == json.dumps([
-        {
-            "Дата платежа": "31.12.2021",
-            "Статус": "OK",
-            "Сумма платежа": -564.0,
-            "Валюта платежа": "RUB",
-            "Категория": "Различные товары",
-            "Описание": "Ozon.ru",
-            "Номер карты": "*5091"
-        },
-        {
-            "Дата платежа": "20.12.2021",
-            "Статус": "OK",
-            "Сумма платежа": 421.0,
-            "Валюта платежа": "RUB",
-            "Категория": "Различные товары",
-            "Описание": "Ozon.ru",
-            "Номер карты": "*7197"
-        },
-        {
-            "Дата платежа": "14.12.2021",
-            "Статус": "OK",
-            "Сумма платежа": -421.0,
-            "Валюта платежа": "RUB",
-            "Категория": "Различные товары",
-            "Описание": "Ozon.ru",
-            "Номер карты": "*7197"
-        },
-        {
-            "Дата платежа": "21.10.2021",
-            "Статус": "OK",
-            "Сумма платежа": -119.0,
-            "Валюта платежа": "RUB",
-            "Категория": "Различные товары",
-            "Описание": "Ozon.ru",
-            "Номер карты": "*7197"
-        },
-        {
-            "Дата платежа": "04.10.2020",
-            "Статус": "OK",
-            "Сумма платежа": -750.0,
-            "Валюта платежа": "RUB",
-            "Категория": "Различные товары",
-            "Описание": "Ozon.ru",
-            "Номер карты": "*7197"
-        }
-    ], indent=4,
-        ensure_ascii=False, )
+@patch("src.services.read_data_with_user_operations")
+def test_get_cashback_analysis_by_category_successful(
+    mock_read_data_with_user_operations: MagicMock, fixture_operations_data: MagicMock
+) -> None:
+    """Тест успешного выполнения get_cashback_analysis_by_category()."""
 
+    # Мокаю данные операций
+    mock_read_data_with_user_operations.return_value = fixture_operations_data
 
-def test_services_empty_attribute():
-    """Тестирование функции простой поиск, с пустыми атрибутами """
-    assert simple_search(empty_list, "Ozon.ru") == json.dumps([], indent=4,
-                                                              ensure_ascii=False, )
-    assert simple_search(my_list, "") == []
+    # Задаю входные параметры
+    file_path = "mock_path/operations.xlsx"
+    user_year = "2023"
+    user_month = "01"
+
+    expected_result = {"Рестораны": 50.0, "Транспорт": 10.0, "Супермаркеты": 2.0}
+
+    result = get_cashback_analysis_by_category(file=file_path, user_year=user_year, user_month=user_month)
+
+    assert json.loads(result) == expected_result

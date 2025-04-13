@@ -1,42 +1,31 @@
-import json
-import logging
-from pathlib import Path
+from config import excel_file_user_operations
+from src.reports import spending_by_category
+from src.services import get_cashback_analysis_by_category
+from src.utils import read_data_with_user_operations
+from src.views import response_for_main_page
 
-from src.utils import currency_rates, for_each_card, get_price_stock, greetings, read_excel, top_five_transaction
-from src.views import filter_by_date
+if __name__ == "__main__":
 
-logger = logging.getLogger("utils.log")
-file_handler = logging.FileHandler("main.log", "w")
-file_formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
-logger.setLevel(logging.INFO)
+    # ЗАДАЧА 1
+    user_date = input(
+        "Введите дату для вывода данных по банковским операциям (с 01.mm.yyyy по dd.mm.yyyy), где "
+        "dd.mm.yyyy это указанная вами дата: "
+    ).strip()
+    print(response_for_main_page(user_date))
 
-file_path = str(Path(__file__).resolve().parent.parent) + "\\data\\operations.xlsx"
-data_frame = read_excel(file_path)
-
-
-def main(date: str, df_transactions, stocks: list, currency: list):
-    """Функция создающая JSON ответ для страницы главная"""
-    logger.info("Начало работы главной функции (main)")
-    final_list = filter_by_date(date, df_transactions)
-    greeting = greetings()
-    cards = for_each_card(final_list)
-    top_trans = top_five_transaction(final_list)
-    stocks_prices = get_price_stock(stocks)
-    currency_r = currency_rates(currency)
-    logger.info("Создание JSON ответа")
-    result = [{
-            "greeting": greeting,
-            "cards": cards,
-            "top_transactions": top_trans,
-            "currency_rates": currency_r,
-            "stock_prices": stocks_prices,
-        }]
-    date_json = json.dumps(
-        result,
-        indent=4,
-        ensure_ascii=False,
+    # ЗАДАЧА 2
+    year, month = (
+        input(
+            "Введите через `-` год и месяц за который будет проводится анализ категорий повышенного "
+            "кэшбэка (например: 2021-08): "
+        )
+        .strip()
+        .split("-")
     )
-    logger.info("Завершение работы главной функции (main)")
-    return date_json
+    print(get_cashback_analysis_by_category(file=excel_file_user_operations, user_year=year, user_month=month))
+
+    # ЗАДАЧА 3
+    transactions = read_data_with_user_operations(path_to_file=excel_file_user_operations)
+    user_category = input("Введите название категории: ").strip().lower()
+    user_date = input("Введите дату для анализа в формате dd.mm.yyyy: ").strip()
+    print(spending_by_category(transactions, user_category, user_date))
