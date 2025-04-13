@@ -1,45 +1,60 @@
 import json
-import logging
-from collections import defaultdict
-from datetime import datetime
-from functools import reduce
+from pathlib import Path
+from typing import Union
 
-logger = logging.getLogger(__name__)
+import pandas as pd
+
+from logger import get_logger_for_services
+from src.utils import read_data_with_user_operations
+
+# Инициализирую логгер для services
+logger = get_logger_for_services(__name__)
 
 
-def get_beneficial_cashback_categories(data, year, month):
-    """
-    Функция «Выгодные категории повышенного кешбэка»
+def get_cashback_analysis_by_category(file: Union[str, Path], user_year: str, user_month: str) -> str:
+    """Функция позволяет проанализировать, какие категории были наиболее выгодными для выбора в качестве категорий
+    повышенного кэшбэка.
+    :param file: На вход поступает путь к данным с банковскими транзакциями для анализа (data).
+    :param user_year: Пользователь устанавливает год (year) за который проводится анализ.
+    :param user_month: Пользователь устанавливает месяц (month) за который проводится анализ.
+    :return: JSON с анализом, сколько на каждой категории можно заработать кэшбэка в указанном месяце года."""
 
-    :param data: Список транзакций
-    :param year: Год для анализа
-    :param month: Месяц для анализа
-    :return: JSON строка с анализом кэшбэка по категориям
-    """
+    logger.debug("Установка фильтрации по году и месяцу")
+    # Чтение excel-файла и создание DataFrame
+    df_all_user_operations = read_data_with_user_operations(path_to_file=file)
 
-    logger.info("Начинается анализ категорий кешбэка за %d-%02d", year, month)
-
-    # Функция для фильтрации транзакций по году и месяцу
-    is_in_month = (
-        lambda x: datetime.strptime(x["date"], "%Y-%m-%d").year == year
-        and datetime.strptime(x["date"], "%Y-%m-%d").month == month
+    # Преобразую столбец "Дата платежа" в datetime
+    logger.debug("Преобразование столбца 'Дата платежа' в datetime для последующих операций фильтрации")
+    df_all_user_operations["Дата платежа"] = pd.to_datetime(
+        df_all_user_operations["Дата платежа"], format="%d.%m.%Y", errors="coerce"
     )
 
-    filtered_transactions = list(filter(is_in_month, data))
-    logger.info("Отфильтрованные транзакции: %s", filtered_transactions)
+    # Фильтрация полученного DataFrame по заданному году и месяцу
+    logger.debug("Фильтрация полученного DataFrame по заданному году и месяцу")
+    df_filtered_user_operations = df_all_user_operations[
+        (df_all_user_operations["Дата платежа"].dt.year == int(user_year))
+        & (df_all_user_operations["Дата платежа"].dt.month == int(user_month))
+    ]
 
-    # Функция для аккумулирования сумм по категориям
-    def accumulate(acc, transaction):
-        category = transaction["category"]
-        amount = abs(transaction["amount"])
-        acc[category] += amount
-        return acc
+    # Сортировка успешных расходных операций
+    logger.debug("Сортировка успешных расходных операций пользователя")
+    sorted_data = df_filtered_user_operations.loc[
+        (df_filtered_user_operations["Статус"] == "OK") & (df_filtered_user_operations["Сумма платежа"] < 0)
+    ].copy()
+    # Добавляю новую колонку "Рассчитанный кэшбэк" и определяю кэшбэк по каждой операции:
+    # 1) Если значение есть, то беру его из файла.
+    # 2) Если значения нет, считаю 1 рубль на каждые 100 рублей расходов
+    logger.debug("Рассчет кэшбэка по каждой операции")
+    sorted_data["Рассчитанный кэшбэк"] = sorted_data.apply(
+        lambda row: row["Кэшбэк"] if pd.notnull(row["Кэшбэк"]) else abs(row["Сумма платежа"]) // 100, axis=1
+    )
 
-    category_cashback = reduce(accumulate, filtered_transactions, defaultdict(int))
+    # Группирую по названию категории, суммирую кэшбэк этой категории и в конце сортирую по убыванию
+    logger.debug("Группировка и суммирование кэшбэка по каждой категории")
+    category_cashback = sorted_data.groupby("Категория")["Рассчитанный кэшбэк"].sum().sort_values(ascending=False)
 
-    # Формируем кэшбэк (1% от суммы) и превращаем его в обычный словарь
-    cashbacks = {category: round(amount * 0.01) for category, amount in category_cashback.items()}
+    logger.info("Формирование итогового ответа в формате json")
+    response = category_cashback.to_dict()
+    logger.debug("Итоговый ответ успешно сформирован")
 
-    logger.info("Сумма cashback: %s", cashbacks)
-
-    return json.dumps(cashbacks, ensure_ascii=False, indent=4)
+    return json.dumps(response, ensure_ascii=False, indent=4)
