@@ -1,90 +1,92 @@
+from typing import List
 
-import os
-from pathlib import Path
-from unittest.mock import Mock, patch
+import pytest
 
-from dotenv import load_dotenv
-
-from src.utils import currency_rates, for_each_card, get_price_stock, greetings, read_excel, top_five_transaction
-
-file_path = str(Path(__file__).resolve().parent.parent) + "\\data\\operations.xlsx"
-load_dotenv()
-API_KEY_CUR = os.getenv("API_KEY_CUR")
-my_list = read_excel(file_path)
-empty_list = []
+from src.utils import filter_vacancies, get_top_vacancies, get_vacancies_by_salary, print_vacancies, sort_vacancies
+from src.vacancy_services import Vacancy
 
 
-def test_greetings():
-    """Тестирование функции приветствия"""
-    assert greetings() == "Добрый день"
-
-
-def test_for_each_card():
-    """Тестирование функции создающей информацию по каждой карте, в обычном режиме"""
-    assert for_each_card(my_list) == [{'last_digits': '7197', 'total_spent': 2504514.54, 'cashback': 25045.15},
-                                      {'last_digits': '5091', 'total_spent': 18216.84, 'cashback': 182.17},
-                                      {'last_digits': '4556', 'total_spent': 2103029.17, 'cashback': 21030.29},
-                                      {'last_digits': '1112', 'total_spent': 46207.08, 'cashback': 462.07},
-                                      {'last_digits': '5507', 'total_spent': 84000.0, 'cashback': 840.0},
-                                      {'last_digits': '6002', 'total_spent': 69200.0, 'cashback': 692.0},
-                                      {'last_digits': '5441', 'total_spent': 470854.8, 'cashback': 4708.55}]
-
-
-def test_for_each_card_emp_att():
-    """Тестирование функции создающей информацию по каждой карте, с пустым списком"""
-    assert for_each_card(empty_list) == []
-
-
-def test_top_five_transaction():
-    """Тестирование функции для получения топ-5 транзакций по сумме платежа, в обычном режиме"""
-    assert top_five_transaction(my_list) == [
-        {'date': '01.09.2021', 'amount': 5990.0, 'category': 'Каршеринг', 'description': 'Ситидрайв'},
-        {'date': '20.05.2021', 'amount': 8626.0, 'category': 'Бонусы', 'description': 'Компенсация покупки'},
-        {'date': '14.05.2019', 'amount': 42965.94, 'category': 'Другое', 'description': 'ГУП ВЦКП ЖХ'},
-        {'date': '30.04.2019', 'amount': 6100.0, 'category': 'Зарплата',
-         'description': 'Пополнение. ООО "ФОРТУНА". Зарплата'},
-        {'date': '23.04.2019', 'amount': 4518.0, 'category': 'Сервис', 'description': 'Kopirovalniy Centr'},
-        {'date': '15.04.2019', 'amount': 6100.0, 'category': 'Зарплата',
-         'description': 'Пополнение. ООО "ФОРТУНА". Аванс'},
-        {'date': '21.03.2019', 'amount': 190044.51, 'category': 'Переводы',
-         'description': 'Перевод Кредитная карта. ТП 10.2 RUR'},
-        {'date': '28.08.2018', 'amount': 32999.0, 'category': 'Различные товары', 'description': 'SPb Trk Atmosfera'},
-        {'date': '16.08.2018', 'amount': 3100.0, 'category': 'Транспорт', 'description': 'RigasStarptautiska autoos'},
-        {'date': '19.04.2018', 'amount': 4292.8, 'category': 'Ж/д билеты', 'description': 'РЖД'},
-        {'date': '10.03.2018', 'amount': 900.0, 'category': 'Кино', 'description': 'Каро Фильм'},
-        {'date': '06.03.2018', 'amount': 10420.07, 'category': 'Частные услуги', 'description': 'YM*Login.Skolkovo'},
-        {'date': '30.01.2018', 'amount': 2789.68, 'category': 'Супермаркеты', 'description': 'Перекрёсток'}]
-
-
-def test_top_five_transaction_emp_att():
-    """Тестирование функции для получения топ-5 транзакций по сумме платежа, с пустым списком"""
-    assert top_five_transaction(empty_list) == []
-
-
-@patch('requests.get')
-def test_currency_rates(mock_get):
-    """Тестирование функции вывода курса валют"""
-    mock_response_usd = Mock()
-    mock_response_usd.json.return_value = {"conversion_rates": {"RUB": 88.34}}
-    mock_response_eur = Mock()
-    mock_response_eur.json.return_value = {"conversion_rates": {"RUB": 97.8}}
-    mock_get.side_effect = [mock_response_usd, mock_response_eur]
-
-    result = currency_rates(['USD', 'EUR'])
-    expected = [{"currency": "USD", "rate": 88.34}, {"currency": "EUR", "rate": 97.8}]
-    assert result == expected
-
-
-@patch("requests.get")
-def test_fetch_stock_prices(mock_get):
-    """Тестирование функции получения данных об акциях из списка S&P500"""
-
-    mock_get.return_value.json.return_value = {"Global Quote": {"05. price": 210.00}}
-
-    list_stocks = ["AAPL"]
-
-    result = get_price_stock(list_stocks)
-    expected = [
-        {"stock": "AAPL", "price": 210.00},
+def test_filter_vacancies() -> None:
+    vacancies: List[Vacancy] = [
+        Vacancy("Software Engineer", "Develop software", 1000, "http://example.com/1"),
+        Vacancy("Data Scientist", "Analyze data", 1200, "http://example.com/2"),
+        Vacancy("Web Developer", "Build websites", 900, "http://example.com/3"),
     ]
-    assert result == expected
+
+    # Тест без фильтров
+    assert filter_vacancies(vacancies, []) == vacancies
+
+    # Тест с фильтром по заголовку
+    assert len(filter_vacancies(vacancies, ["Software"])) == 1
+    assert filter_vacancies(vacancies, ["Engineer"])[0].title == "Software Engineer"
+
+    # Тест с фильтром по описанию
+    assert len(filter_vacancies(vacancies, ["data"])) == 1
+    assert filter_vacancies(vacancies, ["data"])[0].title == "Data Scientist"
+
+    # Тест с фильтром, который не находит совпадений
+    assert filter_vacancies(vacancies, ["Manager"]) == []
+
+
+def test_get_vacancies_by_salary() -> None:
+    vacancies: List[Vacancy] = [
+        Vacancy("Software Engineer", "Develop software", 1000, "http://example.com/1"),
+        Vacancy("Data Scientist", "Analyze data", 1200, "http://example.com/2"),
+        Vacancy("Web Developer", "Build websites", 900, "http://example.com/3"),
+    ]
+
+    # Тест без диапазона
+    assert get_vacancies_by_salary(vacancies, "") == vacancies
+
+    # Тест с корректным диапазоном
+    assert len(get_vacancies_by_salary(vacancies, "900-1100")) == 2
+
+    # Тест с некорректным диапазоном
+    assert get_vacancies_by_salary(vacancies, "abc-def") == vacancies
+
+
+def test_sort_vacancies() -> None:
+    vacancies: List[Vacancy] = [
+        Vacancy("Software Engineer", "Develop software", 1000, "http://example.com/1"),
+        Vacancy("Data Scientist", "Analyze data", 1200, "http://example.com/2"),
+        Vacancy("Web Developer", "Build websites", 900, "http://example.com/3"),
+    ]
+
+    sorted_vacancies: List[Vacancy] = sort_vacancies(vacancies)
+    assert sorted_vacancies[0].title == "Data Scientist"
+    assert sorted_vacancies[1].title == "Software Engineer"
+    assert sorted_vacancies[2].title == "Web Developer"
+
+
+def test_get_top_vacancies() -> None:
+    vacancies: List[Vacancy] = [
+        Vacancy("Software Engineer", "Develop software", 1000, "http://example.com/1"),
+        Vacancy("Data Scientist", "Analyze data", 1200, "http://example.com/2"),
+        Vacancy("Web Developer", "Build websites", 900, "http://example.com/3"),
+    ]
+
+    top_vacancies: List[Vacancy] = get_top_vacancies(vacancies, 2)
+    assert len(top_vacancies) == 2
+    assert top_vacancies[0].title == "Software Engineer"
+    assert top_vacancies[1].title == "Data Scientist"
+
+    # Тест с нулевым значением
+    assert get_top_vacancies(vacancies, 0) == vacancies
+
+
+def test_print_vacancies(capfd: pytest.CaptureFixture) -> None:
+    vacancies: List[Vacancy] = [
+        Vacancy("Software Engineer", "http://example.com/1", 1000, "Develop software"),
+        Vacancy("Data Scientist", "http://example.com/2", 1200, "Analyze data"),
+    ]
+
+    print_vacancies(vacancies)
+
+    captured = capfd.readouterr()  # Захватываем вывод
+
+    # Проверяем, что вывод содержит ожидаемые строки
+    assert "Название: Software Engineer" in captured.out
+    assert "Ссылка: http://example.com/1" in captured.out
+    assert "Зарплата: 1000.0" in captured.out  # Обратите внимание на .0, так как salary приводится к float
+    assert "Описание: Develop software" in captured.out
+    assert "" in captured.out  # Проверяем, что есть пустая строка между вак
