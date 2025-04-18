@@ -1,92 +1,38 @@
-import pandas as pd
+from typing import Any, Dict
+
 import pytest
 
-
-@pytest.fixture
-def fixture_dataframe_with_one_operation() -> pd.DataFrame:
-    """Фикстура с тестовыми данными для одной операций."""
-    return pd.DataFrame(
-        {
-            "Дата операции": ["31.12.2021 16:44:00"],
-            "Дата платежа": ["31.12.2021"],
-            "Номер карты": ["*7197"],
-            "Статус": ["OK"],
-            "Сумма операции": ["-160,89"],
-            "Валюта операции": ["RUB"],
-            "Сумма платежа": ["-160,89"],
-            "Валюта платежа": ["RUB"],
-            "Кэшбэк": [None],
-            "Категория": ["Супермаркеты"],
-            "MCC": ["5411"],
-            "Описание": ["Колхоз"],
-            "Бонусы (включая кэшбэк)": ["3,00"],
-            "Округление на инвесткопилку": ["0,00"],
-            "Сумма операции с округлением": ["160,89"],
-        }
-    )
+from src.vacancy_api_handler import HeadHunter
+from src.vacancy_storage_json import JSONVacancyStorage
 
 
 @pytest.fixture
-def fixture_operations_data() -> pd.DataFrame:
-    """Фикстура с тестовыми данными набора операций."""
-    return pd.DataFrame(
-        {
-            "Дата операции": ["2023-01-01 10:00:00", "2023-01-01 12:00:00", "2023-01-01 14:00:00"],
-            "Дата платежа": pd.to_datetime(["2023-01-01", "2023-01-01", "2023-01-01"]),
-            "Номер карты": ["*1234", "*1234", "*5678"],
-            "Статус": ["OK", "OK", "OK"],
-            "Сумма операции": [-1000.0, -500.0, -200.0],
-            "Валюта операции": ["RUB", "RUB", "RUB"],
-            "Сумма платежа": [-1000.0, -500.0, -200.0],
-            "Валюта платежа": ["RUB", "RUB", "RUB"],
-            "Кэшбэк": [None, 50.0, None],  # Проверка на расчёт кэшбэка
-            "Категория": ["Транспорт", "Рестораны", "Супермаркеты"],
-            "MCC": ["4121", "5812", "5411"],
-            "Описание": ["Поездка", "Ресторан", "Магазин"],
-            "Бонусы (включая кэшбэк)": [0.0, 5.0, 0.0],
-            "Округление на инвесткопилку": [0.0, 0.0, 0.0],
-            "Сумма операции с округлением": [1000.0, 500.0, 200.0],
-        }
-    )
+def mock_file_storage(mocker: Any) -> Any:
+    """Создаем мок для JSONFileStorage."""
+    return mocker.patch("src.file_utils.JSONFileStorage")
 
 
 @pytest.fixture
-def fixture_simple_operations_data() -> pd.DataFrame:
-    """Фикстура с упрощенными тестовыми данными операций."""
-    return pd.DataFrame(
-        {
-            "Дата операции": ["2021-05-01 12:00:00", "2021-05-10 15:00:00"],
-            "Дата платежа": ["2021-05-01", "2021-05-10"],
-            "Номер карты": ["*1234", "*5678"],
-            "Статус": ["OK", "OK"],
-            "Сумма операции": [-1500.0, -2000.0],
-            "Валюта операции": ["RUB", "RUB"],
-            "Сумма платежа": [-1500.0, -2000.0],
-            "Валюта платежа": ["RUB", "RUB"],
-            "Кэшбэк": [50.0, None],
-            "Категория": ["Рестораны", "Супермаркеты"],
-            "Описание": ["Обед", "Магазин"],
-        }
-    )
+def vacancy_storage(mock_file_storage: Any) -> JSONVacancyStorage:
+    """Создаем экземпляр JSONVacancyStorage с мок-объектом."""
+    storage = JSONVacancyStorage("test_vacancies.json")
+    storage.file_storage = mock_file_storage.return_value
+    return storage
 
 
 @pytest.fixture
-def fixture_user_settings() -> dict:
-    """Фикстура с пользовательскими настройками из JSON-файла."""
-    return {"user_currencies": ["USD", "EUR"], "user_stocks": ["AAPL", "AMZN", "GOOGL"]}
+def mock_file_worker() -> Dict[str, Any]:
+    """Создаем мок для file_worker."""
+    return {}
 
 
 @pytest.fixture
-def fixture_transactions_data():
-    """Фикстура с тестовыми данными транзакций для функций-отчетов в reports.py."""
-    data = pd.DataFrame(
-        {
-            "Дата платежа": ["01.01.2023", "15.12.2022", "15.11.2022"],
-            "Статус": ["OK", "OK", "OK"],
-            "Сумма платежа": [-100.0, -200.0, -50.0],
-            "Категория": ["Рестораны", "Рестораны", "Супермаркеты"],
-        }
-    )
-    # Преобразуем даты в datetime
-    data["Дата платежа"] = pd.to_datetime(data["Дата платежа"], format="%d.%m.%Y")
-    return data
+def headhunter(mock_file_worker: Dict[str, Any]) -> HeadHunter:
+    """Создаем экземпляр HeadHunter с мок-объектом."""
+    return HeadHunter(mock_file_worker)
+
+
+@pytest.fixture
+def temp_json_file(tmp_path: Any) -> Any:
+    """Создаем временный JSON файл."""
+    return tmp_path / "temp.json"
